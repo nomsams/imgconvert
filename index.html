@@ -32,6 +32,7 @@
             --radius: 12px;
             --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
             --modal-overlay: rgba(15, 23, 42, 0.85);
+            --snap-guide: #ef4444;
         }
 
         [data-theme="light"] {
@@ -45,6 +46,7 @@
             --text-muted: #64748b;
             --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
             --modal-overlay: rgba(255, 255, 255, 0.85);
+            --snap-guide: #dc2626;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; transition: background 0.3s, border 0.3s, color 0.3s; }
@@ -164,7 +166,7 @@
         }
         .modal-header {
             padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
-            background: var(--bg-card);
+            background: var(--bg-card); z-index: 10;
         }
         .modal-toolbar { display: flex; gap: 0.75rem; align-items: center; }
         .tool-divider { width: 1px; height: 24px; background: var(--border); margin: 0 0.5rem; }
@@ -179,12 +181,22 @@
             background-image: radial-gradient(var(--border) 1px, transparent 0); background-size: 20px 20px;
         }
         .modal-body:active { cursor: grabbing; }
-        .modal-body svg { max-width: 100%; max-height: 100%; overflow: visible; }
-        .modal-body svg * { cursor: pointer; transition: stroke 0.2s, opacity 0.2s; }
-        .modal-body svg *:hover { stroke: var(--primary); stroke-width: 2px; opacity: 0.8; }
+        .modal-body svg { max-width: 100%; max-height: 100%; overflow: visible; z-index: 1; position: relative; }
+        
+        /* Shape interactions */
+        .modal-body svg * { cursor: pointer; transition: opacity 0.2s; }
+        .modal-body svg *:hover { opacity: 0.8; }
         
         /* Highlight for selected SVG element */
-        .svg-selected { stroke: var(--success) !important; stroke-dasharray: 4; stroke-width: 2px !important; animation: dash 1s linear infinite; }
+        .svg-selected { stroke: var(--primary) !important; stroke-dasharray: 4; stroke-width: 2px !important; animation: dash 1s linear infinite; }
+
+        /* Snapping Guides Overlay Container */
+        #snap-guides-container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; overflow: hidden;
+        }
+
+        .shortcut-hint { font-size: 0.75rem; color: var(--text-muted); display:flex; gap:0.5rem; align-items:center; }
+        .shortcut-hint kbd { background: var(--bg-body); padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border); font-family: monospace;}
 
         @media (max-width: 900px) { .container { grid-template-columns: 1fr; padding: 1rem; } }
         @keyframes spin { 100% { transform: rotate(360deg); } }
@@ -293,15 +305,19 @@
     </div>
 
     <div class="modal-backdrop" id="svgModalBackdrop">
-        <div class="modal">
+        <div class="modal" style="width: 98vw; height: 98vh;">
             <div class="modal-header">
                 <div style="display:flex; align-items:center; gap:1rem;">
                     <h3>Vector Studio</h3>
                     <span id="svgFileName" style="color:var(--text-muted); font-size:0.9rem; border-left: 1px solid var(--border); padding-left: 1rem;"></span>
                 </div>
                 <div class="modal-toolbar">
-                    <div style="font-size: 0.8rem; color: var(--text-muted); display:flex; gap:0.5rem; align-items:center;">
-                        <span><kbd>Scroll</kbd> Zoom</span> &bull; <span><kbd>Mid-Click</kbd> Pan</span> &bull; <span><kbd>Click</kbd> Select</span>
+                    <div class="shortcut-hint">
+                        <span><kbd>Ctrl+Z</kbd> Undo</span>
+                        <span><kbd>Ctrl+D</kbd> Dup</span>
+                        <span><kbd>Del</kbd> Drop</span>
+                        <span><kbd>Arrows</kbd> Move</span>
+                        <span><kbd>[</kbd> <kbd>]</kbd> Layers</span>
                     </div>
                     <div class="tool-divider"></div>
                     
@@ -315,6 +331,7 @@
                 </div>
             </div>
             <div class="modal-body" id="svgCanvasContainer">
+                <div id="snap-guides-container"></div>
                 </div>
         </div>
     </div>
@@ -353,7 +370,6 @@
         // --- Settings / Reprocessing Trigger ---
         function onSettingsChange() {
             els.qualityVal.textContent = Math.round(els.qualityRange.value * 100) + '%';
-            // Alert user to reprocess if there are raster images
             if (state.files.some(f => !f.isSvg)) els.reprocessAlert.style.display = 'flex';
         }
 
@@ -415,7 +431,6 @@
             updateCardStatus(card, 'processing');
 
             try {
-                // Route SVGs directly to ready state (editable via modal)
                 if (fileObj.isSvg) {
                     fileObj.blob = fileObj.originalFile; 
                     fileObj.url = URL.createObjectURL(fileObj.blob);
@@ -425,7 +440,6 @@
                     return;
                 }
 
-                // Collect current Raster Engine Settings
                 const options = {
                     format: els.formatSelect.value,
                     quality: parseFloat(els.qualityRange.value),
@@ -437,18 +451,13 @@
                 };
 
                 let sourceBlob = fileObj.originalFile;
-
-                // 1. Decode HEIC natively if required
                 const isHeic = sourceBlob.name.toLowerCase().endsWith('.heic') || sourceBlob.type === "image/heic";
                 if (isHeic) {
                     sourceBlob = await heic2any({ blob: sourceBlob, toType: "image/jpeg", quality: 1.0 });
                     if (Array.isArray(sourceBlob)) sourceBlob = sourceBlob[0];
                 }
 
-                // 2. Main Processing (Resize, Rotate, Filter, Watermark)
                 const processedBlob = await processStandardImage(sourceBlob, options);
-
-                // 3. Update Object Data
                 let ext = options.format.split('/')[1]; 
                 if(ext === 'jpeg') ext = 'jpg';
                 const baseName = fileObj.originalFile.name.replace(/\.[^/.]+$/, "");
@@ -467,17 +476,14 @@
             }
         }
 
-        // Upgraded Standardized Image Transformation via Canvas
         function processStandardImage(blob, options) {
             return new Promise((resolve, reject) => {
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    
                     let w = img.width; let h = img.height;
 
-                    // Handle Scaling (Preserving Aspect Ratio)
                     if (options.resizeW !== 'original') {
                         const targetW = parseInt(options.resizeW);
                         if (w > targetW) {
@@ -486,14 +492,12 @@
                         }
                     }
 
-                    // Handle Canvas Dimensions post-rotation
                     if (options.rotateDeg === 90 || options.rotateDeg === 270) {
                         canvas.width = h; canvas.height = w;
                     } else {
                         canvas.width = w; canvas.height = h;
                     }
 
-                    // Apply Image Filters Before Drawing
                     let filterStr = 'none';
                     if (options.filter === 'grayscale') filterStr = 'grayscale(100%)';
                     else if (options.filter === 'sepia') filterStr = 'sepia(100%)';
@@ -501,34 +505,26 @@
                     else if (options.filter === 'blur') filterStr = 'blur(5px)';
                     ctx.filter = filterStr;
 
-                    // Execute Rotation & Draw
                     ctx.translate(canvas.width/2, canvas.height/2);
                     ctx.rotate(options.rotateDeg * Math.PI / 180);
                     ctx.drawImage(img, -w/2, -h/2, w, h);
 
-                    // Add Watermark Overlay (Requires resetting transform & filter)
                     if (options.watermark) {
-                        ctx.filter = 'none'; // text shouldn't be blurred/inverted
-                        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset matrix to canvas absolute coords
-                        
-                        const fontSize = Math.max(16, canvas.width * 0.03); // dynamic scaling
+                        ctx.filter = 'none'; 
+                        ctx.setTransform(1, 0, 0, 1, 0, 0); 
+                        const fontSize = Math.max(16, canvas.width * 0.03); 
                         ctx.font = `bold ${fontSize}px sans-serif`;
                         ctx.fillStyle = options.watermarkColor;
-                        ctx.globalAlpha = 0.8; // slight transparency
+                        ctx.globalAlpha = 0.8; 
                         ctx.textAlign = 'right';
                         ctx.textBaseline = 'bottom';
-                        
-                        // Add shadow for visibility on light/dark backgrounds
                         ctx.shadowColor = "rgba(0,0,0,0.8)";
                         ctx.shadowBlur = 4;
                         ctx.shadowOffsetX = 1;
                         ctx.shadowOffsetY = 1;
-
-                        // Draw bottom right with padding
                         ctx.fillText(options.watermark, canvas.width - (fontSize), canvas.height - (fontSize));
                         ctx.globalAlpha = 1.0;
                     }
-
                     canvas.toBlob(resBlob => resolve(resBlob), options.format, options.quality);
                 };
                 img.onerror = reject;
@@ -575,7 +571,6 @@
         function updateCardStatus(card, status) {
             const iconContainer = card.querySelector('.status-icon');
             const targetBadge = card.querySelector('.target-badge');
-            
             const fileObj = state.files.find(f => f.id === card.id);
             if(fileObj && fileObj.isSvg) {
                 targetBadge.textContent = 'SVG';
@@ -595,7 +590,6 @@
             card.style.opacity = '1';
             card.querySelector('.status-icon').innerHTML = `<i data-lucide="check-circle" style="color:var(--success)"></i>`;
             card.querySelector('.preview-box').innerHTML = `<img src="${fileObj.url}" alt="preview">`;
-            
             const actionsContainer = card.querySelector(`#actions-${fileObj.id}`);
             
             if (fileObj.isSvg) {
@@ -620,7 +614,6 @@
                     </button>
                 `;
             }
-            
             lucide.createIcons();
             updateGlobalButtons();
         }
@@ -663,7 +656,6 @@
 
             const content = await zip.generateAsync({type:"blob"});
             saveAs(content, "PrismPro_Export.zip");
-            
             btn.innerHTML = originalText; btn.disabled = false;
         });
 
@@ -685,35 +677,46 @@
         }
 
         // ==========================================
-        //  VECTOR STUDIO (UPGRADED SVG EDITOR)
+        //  VECTOR STUDIO (PROFESSIONAL EDITION)
         // ==========================================
         const VectorStudio = {
             activeFileId: null,
             container: document.getElementById('svgCanvasContainer'),
             modal: document.getElementById('svgModalBackdrop'),
             colorPicker: document.getElementById('svgColorPicker'),
+            snapOverlay: document.getElementById('snap-guides-container'),
             
-            // Viewport State
+            // Camera & Transforms
             viewBox: { x: 0, y: 0, w: 100, h: 100 },
             isPanning: false,
             panStart: { x: 0, y: 0 },
             
-            // Element Drag/Select State
+            // Interaction State
+            selectedElements: new Set(),
             dragMode: false,
-            activeElement: null,
-            dragStartMouse: { x: 0, y: 0 },
-            dragStartTransform: { x: 0, y: 0 },
+            dragStartScreen: { x: 0, y: 0 },
+            dragStartSVGPoint: null,
+            initialTransforms: new WeakMap(),
+            
+            // History (Undo/Redo) Engine
+            history: [],
+            historyIndex: -1,
+            
+            // Smart Snap Engine
+            snapThreshold: 8, 
+            targetsX: new Set(), targetsY: new Set(),
+            dragStartBoundingBox: null,
 
             async open(fileId) {
                 this.activeFileId = fileId;
                 const fileObj = state.files.find(f => f.id === fileId);
                 document.getElementById('svgFileName').textContent = fileObj.newName;
                 
-                // Inject SVG text
                 const text = await fileObj.blob.text();
-                this.container.innerHTML = text;
-                const svgEl = this.container.querySelector('svg');
+                Array.from(this.container.children).forEach(child => { if(child.tagName === 'svg') child.remove(); });
+                this.container.insertAdjacentHTML('beforeend', text);
                 
+                const svgEl = this.container.querySelector('svg');
                 if(svgEl) {
                     let vb = svgEl.getAttribute('viewBox');
                     if (vb) {
@@ -727,18 +730,151 @@
                     }
                     svgEl.style.width = '100%'; svgEl.style.height = '100%';
                     svgEl.removeAttribute('width'); svgEl.removeAttribute('height');
+
+                    // Assign Internal Unique IDs for History Tracking
+                    svgEl.querySelectorAll('*').forEach(el => {
+                        if (!el.getAttribute('data-prism-id')) {
+                            el.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
+                        }
+                    });
                 }
                 
+                this.history = [];
+                this.historyIndex = -1;
+                this.saveState(); // Record absolute initial state
+
                 this.modal.style.display = 'flex';
                 this.attachEvents();
             },
 
             close() {
                 this.modal.style.display = 'none';
-                this.container.innerHTML = '';
+                Array.from(this.container.children).forEach(child => { if(child.tagName === 'svg') child.remove(); });
                 this.clearSelection();
+                this.clearSnapGuides();
                 this.detachEvents();
                 this.activeFileId = null;
+            },
+
+            // --- History Engine ---
+            saveState() {
+                const svg = this.container.querySelector('svg');
+                if(!svg) return;
+                
+                // Track currently selected IDs to restore after time travel
+                const selectedIds = Array.from(this.selectedElements).map(el => el.getAttribute('data-prism-id'));
+                
+                // Truncate future history if we've gone back and made a new change
+                this.history = this.history.slice(0, this.historyIndex + 1);
+                this.history.push({
+                    html: svg.innerHTML,
+                    selectedIds: selectedIds,
+                    vb: {...this.viewBox}
+                });
+                this.historyIndex++;
+            },
+
+            undo() {
+                if (this.historyIndex > 0) {
+                    this.historyIndex--;
+                    this.restoreState();
+                }
+            },
+
+            redo() {
+                if (this.historyIndex < this.history.length - 1) {
+                    this.historyIndex++;
+                    this.restoreState();
+                }
+            },
+
+            restoreState() {
+                const svg = this.container.querySelector('svg');
+                if(!svg) return;
+                const state = this.history[this.historyIndex];
+                
+                this.clearSelection();
+                svg.innerHTML = state.html;
+                this.viewBox = {...state.vb};
+                this.updateViewBox();
+
+                // Restore Selections using data-prism-id
+                state.selectedIds.forEach(id => {
+                    const el = svg.querySelector(`[data-prism-id="${id}"]`);
+                    if(el) this.setSelection(el, true); // true = additive
+                });
+            },
+
+            // --- Selection Logic ---
+            clearSelection() {
+                this.selectedElements.forEach(el => el.classList.remove('svg-selected'));
+                this.selectedElements.clear();
+            },
+
+            setSelection(el, additive = false) {
+                if (!additive) this.clearSelection();
+                
+                if (this.selectedElements.has(el)) {
+                    this.selectedElements.delete(el);
+                    el.classList.remove('svg-selected');
+                } else {
+                    this.selectedElements.add(el);
+                    el.classList.add('svg-selected');
+                }
+                this.updateColorPickerFromSelection();
+            },
+
+            updateColorPickerFromSelection() {
+                if (this.selectedElements.size === 1) {
+                    const el = Array.from(this.selectedElements)[0];
+                    const currentFill = el.getAttribute('fill') || getComputedStyle(el).fill;
+                    if(currentFill && currentFill.startsWith('#')) {
+                        this.colorPicker.value = currentFill.slice(0, 7);
+                    }
+                }
+            },
+
+            applyColorToSelection(colorHex) {
+                if(this.selectedElements.size === 0) return;
+                this.selectedElements.forEach(el => {
+                    el.setAttribute('fill', colorHex);
+                    el.style.fill = colorHex; 
+                });
+                this.saveState();
+            },
+
+            duplicateSelected() {
+                if (this.selectedElements.size === 0) return;
+                const svg = this.container.querySelector('svg');
+                let newSelection = [];
+                
+                this.selectedElements.forEach(el => {
+                    let clone = el.cloneNode(true);
+                    clone.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
+                    clone.classList.remove('svg-selected');
+                    el.parentNode.insertBefore(clone, el.nextSibling);
+                    
+                    // Offset the duplicate visually
+                    this.applyDeltaTransform(clone, 20, 20);
+                    newSelection.push(clone);
+                });
+
+                this.clearSelection();
+                newSelection.forEach(el => this.setSelection(el, true));
+                this.saveState();
+            },
+
+            // Safely modifies transforms by prepending or modifying a translate block
+            applyDeltaTransform(el, dx, dy) {
+                let transform = el.getAttribute('transform') || '';
+                const match = transform.match(/^translate\(([-\d.]+)[, ]+([-\d.]+)\)(.*)/);
+                if(match) {
+                    let newX = parseFloat(match[1]) + dx;
+                    let newY = parseFloat(match[2]) + dy;
+                    el.setAttribute('transform', `translate(${newX}, ${newY})${match[3]}`);
+                } else {
+                    el.setAttribute('transform', `translate(${dx}, ${dy}) ${transform}`);
+                }
             },
 
             updateViewBox() {
@@ -746,48 +882,20 @@
                 if(svgEl) svgEl.setAttribute('viewBox', `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.w} ${this.viewBox.h}`);
             },
 
-            getTransformXY(el) {
-                const transform = el.getAttribute('transform') || '';
-                const match = transform.match(/translate\(([^,]+)[, ]+([^)]+)\)/);
-                if(match) return { x: parseFloat(match[1]), y: parseFloat(match[2]) };
-                return { x: 0, y: 0 };
+            // --- Mathematics & Coordinate Engine ---
+            getSVGPoint(clientX, clientY) {
+                const svg = this.container.querySelector('svg');
+                const pt = svg.createSVGPoint();
+                pt.x = clientX; pt.y = clientY;
+                return pt.matrixTransform(svg.getScreenCTM().inverse());
             },
 
-            setTransformXY(el, x, y) {
-                let transform = el.getAttribute('transform') || '';
-                transform = transform.replace(/translate\([^)]+\)/, '').trim();
-                el.setAttribute('transform', `translate(${x},${y}) ${transform}`);
+            isShape(el) {
+                const validShapes = ['rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text', 'g'];
+                return validShapes.includes(el.tagName.toLowerCase()) && el.tagName.toLowerCase() !== 'svg';
             },
 
-            // --- Selection & Color Manipulation ---
-            clearSelection() {
-                if (this.activeElement) {
-                    this.activeElement.classList.remove('svg-selected');
-                    this.activeElement = null;
-                }
-            },
-
-            selectElement(el) {
-                this.clearSelection();
-                this.activeElement = el;
-                this.activeElement.classList.add('svg-selected');
-                
-                // Read current color to update the picker UI
-                const currentFill = el.getAttribute('fill') || getComputedStyle(el).fill;
-                // Basic hex conversion for picker if valid
-                if(currentFill && currentFill.startsWith('#') && (currentFill.length===4 || currentFill.length===7)) {
-                    this.colorPicker.value = currentFill;
-                }
-            },
-
-            applyColorToSelection(colorHex) {
-                if (this.activeElement) {
-                    this.activeElement.setAttribute('fill', colorHex);
-                    this.activeElement.style.fill = colorHex; // override inline styles
-                }
-            },
-
-            // --- Tool Events ---
+            // --- Event Handlers ---
             onWheel(e) {
                 e.preventDefault();
                 const zoomIntensity = 0.1;
@@ -806,20 +914,37 @@
             onMouseDown(e) {
                 const isSvgBackground = e.target.tagName.toLowerCase() === 'svg';
                 
-                // Middle click OR background click = Pan Canvas
+                // Pan Camera
                 if (e.button === 1 || (e.button === 0 && isSvgBackground)) {
                     e.preventDefault();
-                    if(e.button === 0) this.clearSelection(); // Deselect if clicking empty space
+                    if(e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) this.clearSelection();
                     this.isPanning = true;
                     this.panStart = { x: e.clientX, y: e.clientY };
                 } 
-                // Left click on shape = Select & Drag
-                else if (e.button === 0 && !isSvgBackground) {
+                // Select and Drag Shapes
+                else if (e.button === 0 && !isSvgBackground && this.isShape(e.target)) {
                     e.preventDefault();
-                    this.dragMode = true;
-                    this.selectElement(e.target); // Trigger new Selection Engine
-                    this.dragStartMouse = { x: e.clientX, y: e.clientY };
-                    this.dragStartTransform = this.getTransformXY(this.activeElement);
+                    
+                    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                        this.setSelection(e.target, true); // additive
+                    } else if (!this.selectedElements.has(e.target)) {
+                        this.setSelection(e.target, false); // exclusive
+                    }
+
+                    if (this.selectedElements.size > 0) {
+                        this.dragMode = true;
+                        this.dragStartScreen = { x: e.clientX, y: e.clientY };
+                        this.dragStartSVGPoint = this.getSVGPoint(e.clientX, e.clientY);
+                        
+                        this.selectedElements.forEach(el => {
+                            const initTransform = el.getAttribute('transform') || '';
+                            el.setAttribute('data-initial', initTransform); 
+                            this.initialTransforms.set(el, initTransform);
+                        });
+
+                        this.calculateSnapTargets();
+                        this.dragStartBoundingBox = this.calculateSelectionBoundingBox();
+                    }
                 }
             },
 
@@ -836,32 +961,220 @@
                     this.panStart = { x: e.clientX, y: e.clientY };
                     this.updateViewBox();
                 } 
-                else if (this.dragMode && this.activeElement) {
-                    const dx = (e.clientX - this.dragStartMouse.x);
-                    const dy = (e.clientY - this.dragStartMouse.y);
-                    const rect = this.container.getBoundingClientRect();
-                    const scaleX = this.viewBox.w / rect.width;
-                    const scaleY = this.viewBox.h / rect.height;
+                else if (this.dragMode && this.selectedElements.size > 0) {
+                    this.clearSnapGuides();
+                    
+                    let screenDx = (e.clientX - this.dragStartScreen.x);
+                    let screenDy = (e.clientY - this.dragStartScreen.y);
 
-                    this.setTransformXY(
-                        this.activeElement, 
-                        this.dragStartTransform.x + (dx * scaleX), 
-                        this.dragStartTransform.y + (dy * scaleY)
-                    );
+                    // Execute Screen-Space Snapping
+                    let bestSnapX = null, minDiffX = this.snapThreshold;
+                    let snapLineX = null;
+                    let bestSnapY = null, minDiffY = this.snapThreshold;
+                    let snapLineY = null;
+
+                    const testPointsX = [
+                        this.dragStartBoundingBox.left + screenDx,
+                        this.dragStartBoundingBox.cx + screenDx,
+                        this.dragStartBoundingBox.right + screenDx
+                    ];
+                    testPointsX.forEach(pt => {
+                        this.targetsX.forEach(target => {
+                            const diff = Math.abs(pt - target);
+                            if (diff < minDiffX) {
+                                minDiffX = diff;
+                                bestSnapX = target - (pt - screenDx); 
+                                snapLineX = target; 
+                            }
+                        });
+                    });
+
+                    const testPointsY = [
+                        this.dragStartBoundingBox.top + screenDy,
+                        this.dragStartBoundingBox.cy + screenDy,
+                        this.dragStartBoundingBox.bottom + screenDy
+                    ];
+                    testPointsY.forEach(pt => {
+                        this.targetsY.forEach(target => {
+                            const diff = Math.abs(pt - target);
+                            if (diff < minDiffY) {
+                                minDiffY = diff;
+                                bestSnapY = target - (pt - screenDy);
+                                snapLineY = target;
+                            }
+                        });
+                    });
+
+                    if (bestSnapX !== null) { screenDx = bestSnapX; this.renderSnapGuide(snapLineX, null); }
+                    if (bestSnapY !== null) { screenDy = bestSnapY; this.renderSnapGuide(null, snapLineY); }
+
+                    // Vector Translation via Inverse CTM
+                    // Calculate exact mathematical delta in SVG universe space
+                    const snappedScreenX = this.dragStartScreen.x + screenDx;
+                    const snappedScreenY = this.dragStartScreen.y + screenDy;
+                    const snappedSVGPoint = this.getSVGPoint(snappedScreenX, snappedScreenY);
+                    
+                    const svgDx = snappedSVGPoint.x - this.dragStartSVGPoint.x;
+                    const svgDy = snappedSVGPoint.y - this.dragStartSVGPoint.y;
+
+                    this.selectedElements.forEach(el => {
+                        const initTrans = this.initialTransforms.get(el);
+                        el.setAttribute('transform', `translate(${svgDx}, ${svgDy}) ${initTrans}`);
+                    });
                 }
             },
 
             onMouseUp() {
                 this.isPanning = false;
-                this.dragMode = false;
+                if (this.dragMode) {
+                    this.dragMode = false;
+                    this.clearSnapGuides();
+                    // Save history ONLY if things actually moved
+                    this.saveState();
+                }
+            },
+
+            onKeyDown(e) {
+                // Ignore key events if user is typing in inputs
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                const svg = this.container.querySelector('svg');
+                if (!svg || this.modal.style.display === 'none') return;
+
+                // Undo / Redo
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                    e.preventDefault();
+                    if (e.shiftKey) this.redo(); else this.undo();
+                    return;
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                    e.preventDefault(); this.redo(); return;
+                }
+
+                // Duplicate
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+                    e.preventDefault(); this.duplicateSelected(); return;
+                }
+
+                // Delete / Backspace
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    if(this.selectedElements.size > 0) {
+                        this.selectedElements.forEach(el => el.remove());
+                        this.clearSelection();
+                        this.saveState();
+                    }
+                    return;
+                }
+
+                // Z-Index Ordering
+                if (e.key === '[' || e.key === ']') {
+                    e.preventDefault();
+                    if (this.selectedElements.size > 0) {
+                        this.selectedElements.forEach(el => {
+                            if (e.key === '[' && el.previousElementSibling) {
+                                el.parentNode.insertBefore(el, el.previousElementSibling);
+                            } else if (e.key === ']' && el.nextElementSibling) {
+                                el.parentNode.insertBefore(el.nextElementSibling, el);
+                            }
+                        });
+                        this.saveState();
+                    }
+                    return;
+                }
+
+                // Nudging with Arrow Keys
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    if(this.selectedElements.size === 0) return;
+                    
+                    let dx = 0, dy = 0;
+                    const amount = e.shiftKey ? 10 : 1; 
+                    if(e.key === 'ArrowUp') dy = -amount;
+                    if(e.key === 'ArrowDown') dy = amount;
+                    if(e.key === 'ArrowLeft') dx = -amount;
+                    if(e.key === 'ArrowRight') dx = amount;
+
+                    // Convert screen pixels to true SVG pixels for accurate keyboard nudge
+                    let CTM = svg.getScreenCTM();
+                    let svgDx = dx / CTM.a;
+                    let svgDy = dy / CTM.d;
+
+                    this.selectedElements.forEach(el => {
+                        this.applyDeltaTransform(el, svgDx, svgDy);
+                    });
+                    
+                    // Note: Ideally debounce saveState on arrow keys to prevent huge history stacks.
+                    // For simplicity and immediate undo safety, we save per press.
+                    clearTimeout(this.arrowSaveTimeout);
+                    this.arrowSaveTimeout = setTimeout(() => this.saveState(), 300);
+                }
+            },
+
+            // --- Snapping Engine Core ---
+            calculateSnapTargets() {
+                this.targetsX.clear();
+                this.targetsY.clear();
+                const svgEl = this.container.querySelector('svg');
+                if(!svgEl) return;
+
+                const allElements = svgEl.querySelectorAll('*');
+                allElements.forEach(el => {
+                    if(this.isShape(el) && !this.selectedElements.has(el)) {
+                        const rect = el.getBoundingClientRect();
+                        if(rect.width > 0 && rect.height > 0) {
+                            this.targetsX.add(rect.left);
+                            this.targetsX.add(rect.left + rect.width/2);
+                            this.targetsX.add(rect.right);
+                            this.targetsY.add(rect.top);
+                            this.targetsY.add(rect.top + rect.height/2);
+                            this.targetsY.add(rect.bottom);
+                        }
+                    }
+                });
+            },
+
+            calculateSelectionBoundingBox() {
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                this.selectedElements.forEach(el => {
+                    const rect = el.getBoundingClientRect();
+                    minX = Math.min(minX, rect.left);
+                    minY = Math.min(minY, rect.top);
+                    maxX = Math.max(maxX, rect.right);
+                    maxY = Math.max(maxY, rect.bottom);
+                });
+                return {
+                    left: minX, top: minY, right: maxX, bottom: maxY,
+                    cx: minX + (maxX - minX)/2, cy: minY + (maxY - minY)/2
+                };
+            },
+
+            clearSnapGuides() {
+                this.snapOverlay.innerHTML = '';
+            },
+
+            renderSnapGuide(x, y) {
+                if (x !== null) {
+                    const line = document.createElement('div');
+                    line.style.cssText = `position: absolute; left: ${x}px; top: 0; bottom: 0; width: 1px; border-left: 1px dashed var(--snap-guide);`;
+                    this.snapOverlay.appendChild(line);
+                }
+                if (y !== null) {
+                    const line = document.createElement('div');
+                    line.style.cssText = `position: absolute; top: ${y}px; left: 0; right: 0; height: 1px; border-top: 1px dashed var(--snap-guide);`;
+                    this.snapOverlay.appendChild(line);
+                }
             },
 
             exportEditedSvg() {
-                this.clearSelection(); // Remove dashed outline before saving
+                this.clearSelection();
                 const svgEl = this.container.querySelector('svg');
                 if(!svgEl) return;
                 
-                svgEl.removeAttribute('style'); // Strip injected 100% width/height
+                svgEl.removeAttribute('style'); 
+                svgEl.querySelectorAll('*').forEach(el => {
+                    el.removeAttribute('data-initial');
+                    el.removeAttribute('data-prism-id'); // clean tracking ids
+                });
                 
                 const serializer = new XMLSerializer();
                 const source = serializer.serializeToString(svgEl);
@@ -882,13 +1195,15 @@
                 this.bindDown = this.onMouseDown.bind(this);
                 this.bindMove = this.onMouseMove.bind(this);
                 this.bindUp = this.onMouseUp.bind(this);
+                this.bindKeyDown = this.onKeyDown.bind(this);
                 this.bindColor = (e) => this.applyColorToSelection(e.target.value);
                 
                 this.container.addEventListener('wheel', this.bindWheel, {passive: false});
                 this.container.addEventListener('mousedown', this.bindDown);
                 window.addEventListener('mousemove', this.bindMove);
                 window.addEventListener('mouseup', this.bindUp);
-                this.colorPicker.addEventListener('input', this.bindColor);
+                window.addEventListener('keydown', this.bindKeyDown);
+                this.colorPicker.addEventListener('change', this.bindColor);
             },
 
             detachEvents() {
@@ -896,7 +1211,8 @@
                 this.container.removeEventListener('mousedown', this.bindDown);
                 window.removeEventListener('mousemove', this.bindMove);
                 window.removeEventListener('mouseup', this.bindUp);
-                this.colorPicker.removeEventListener('input', this.bindColor);
+                window.removeEventListener('keydown', this.bindKeyDown);
+                this.colorPicker.removeEventListener('change', this.bindColor);
             }
         };
 
