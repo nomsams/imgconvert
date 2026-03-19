@@ -310,7 +310,7 @@
                         <span><kbd>Ctrl+Z</kbd> Undo</span>
                         <span><kbd>Ctrl+D</kbd> Dup</span>
                         <span><kbd>Del</kbd> Drop</span>
-                        <span><kbd>Arrows</kbd> Move</span>
+                        <span><kbd>Arrows</kbd> Move/Snap</span>
                     </div>
                     <div class="tool-divider"></div>
                     
@@ -335,7 +335,7 @@
 
         // --- Core App State ---
         const state = {
-            files: [], // Array of file objects
+            files: [],
             processing: false,
             queue: []
         };
@@ -530,7 +530,6 @@
             });
         }
 
-        // --- Dynamic UI Grid Updates ---
         function getBadgeName(file) {
             const ext = file.name.split('.').pop().toUpperCase();
             return ext === 'JPEG' ? 'JPG' : ext;
@@ -797,7 +796,6 @@
                 const bbox = this.calculateSelectionBoundingBox();
                 const selBox = overlay.querySelector('#prism-sel-box');
                 
-                // Dynamic Scaling for handles and borders so they remain constant visual size
                 const strokeW = (this.viewBox.w / this.container.getBoundingClientRect().width) * 1.5;
                 const size = strokeW * 6; // Handle size
 
@@ -822,8 +820,7 @@
                     handle.setAttribute('stroke-width', strokeW);
                 });
 
-                // Clear snap guides on redraw
-                overlay.querySelectorAll('.prism-snap-guide').forEach(g => g.remove());
+                this.clearSnapGuides();
             },
 
             // --- History Engine ---
@@ -903,7 +900,10 @@
                     let clone = el.cloneNode(true);
                     clone.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
                     el.parentNode.insertBefore(clone, el.nextSibling);
-                    this.applyDeltaTransform(clone, 20, 20); // offset duplicated item
+                    // Safe vector math for offset duplication
+                    const offset = this.screenToSVG(20, 20);
+                    const zero = this.screenToSVG(0,0);
+                    this.applyDeltaTransform(clone, offset.x - zero.x, offset.y - zero.y);
                     newSelection.push(clone);
                 });
 
@@ -912,7 +912,6 @@
                 this.saveState();
             },
 
-            // Safely modifies transforms by merging new operations
             applyDeltaTransform(el, dx, dy) {
                 let transform = el.getAttribute('transform') || '';
                 el.setAttribute('transform', `translate(${dx}, ${dy}) ${transform}`);
@@ -927,12 +926,13 @@
                 if(svgEl) svgEl.setAttribute('viewBox', `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.w} ${this.viewBox.h}`);
             },
 
-            // --- Pure Coordinate Mapping (Fixes the Drag Bug) ---
-            screenToSVG(screenX, screenY) {
-                const rect = this.container.getBoundingClientRect();
-                const sx = (screenX - rect.left) * (this.viewBox.w / rect.width) + this.viewBox.x;
-                const sy = (screenY - rect.top) * (this.viewBox.h / rect.height) + this.viewBox.y;
-                return { x: sx, y: sy };
+            // --- Absolute Inverse Projection Matrix (Solves Y-Inversion Bug) ---
+            screenToSVG(clientX, clientY) {
+                const svg = this.container.querySelector('svg');
+                const pt = svg.createSVGPoint();
+                pt.x = clientX;
+                pt.y = clientY;
+                return pt.matrixTransform(svg.getScreenCTM().inverse());
             },
 
             isShape(el) {
@@ -954,7 +954,7 @@
                 this.viewBox.w = newW;
                 this.viewBox.h = newH;
                 this.updateViewBox();
-                this.updateOverlay(); // Rescale handles
+                this.updateOverlay();
             },
 
             onMouseDown(e) {
@@ -967,7 +967,7 @@
                     this.isPanning = true;
                     this.panStart = { x: e.clientX, y: e.clientY };
                 } 
-                // Resize Handle Clicked
+                // Resize Action
                 else if (e.button === 0 && e.target.classList.contains('prism-handle')) {
                     e.preventDefault();
                     this.resizeMode = true;
@@ -979,7 +979,7 @@
                         this.initialTransforms.set(el, el.getAttribute('transform') || '');
                     });
                 }
-                // Select and Drag Shapes
+                // Drag Action
                 else if (e.button === 0 && !isSvgBackground && this.isShape(e.target)) {
                     e.preventDefault();
                     
@@ -1016,7 +1016,6 @@
                     this.updateOverlay();
                 } 
                 else if (this.resizeMode) {
-                    // Safe vector math based entirely on pure scaling ratios
                     const startSVG = this.screenToSVG(this.interactionStartScreen.x, this.interactionStartScreen.y);
                     const currentSVG = this.screenToSVG(e.clientX, e.clientY);
                     
@@ -1031,7 +1030,6 @@
                     if (this.activeHandle.includes('s')) { scaleY = (this.initialBBox.h + dy) / this.initialBBox.h; originY = this.initialBBox.y; }
                     if (this.activeHandle.includes('n')) { scaleY = (this.initialBBox.h - dy) / this.initialBBox.h; originY = this.initialBBox.y + this.initialBBox.h; }
 
-                    // Prevent inversion scaling errors
                     if (scaleX === 0) scaleX = 0.001;
                     if (scaleY === 0) scaleY = 0.001;
 
@@ -1042,85 +1040,20 @@
                     this.updateOverlay();
                 }
                 else if (this.dragMode && this.selectedElements.size > 0) {
-                    const rect = this.container.getBoundingClientRect();
-                    const mapRatioX = this.viewBox.w / rect.width;
-                    const mapRatioY = this.viewBox.h / rect.height;
+                    const startSvg = this.screenToSVG(this.interactionStartScreen.x, this.interactionStartScreen.y);
+                    const currentSvg = this.screenToSVG(e.clientX, e.clientY);
+                    let svgDx = currentSvg.x - startSvg.x;
+                    let svgDy = currentSvg.y - startSvg.y;
 
-                    let screenDx = (e.clientX - this.interactionStartScreen.x);
-                    let screenDy = (e.clientY - this.interactionStartScreen.y);
-
-                    // Execute Snapping
-                    let bestSnapX = null, minDiffX = this.snapThreshold;
-                    let snapLineX = null;
-                    let bestSnapY = null, minDiffY = this.snapThreshold;
-                    let snapLineY = null;
-
-                    // Test X Snap Points (Left, Center, Right) mapping to SVG scale
-                    const movingBoxLeft = this.initialBBox.x + screenDx * mapRatioX;
-                    const testPointsX = [ movingBoxLeft, movingBoxLeft + this.initialBBox.w/2, movingBoxLeft + this.initialBBox.w ];
+                    const snapped = this.calculateSnap(svgDx, svgDy);
                     
-                    testPointsX.forEach(pt => {
-                        this.targetsX.forEach(target => {
-                            const diff = Math.abs(pt - target) / mapRatioX; // check in screen pixels
-                            if (diff < minDiffX) {
-                                minDiffX = diff;
-                                bestSnapX = (target - (pt - screenDx * mapRatioX)) / mapRatioX; 
-                                snapLineX = target; 
-                            }
-                        });
-                    });
-
-                    // Test Y
-                    const movingBoxTop = this.initialBBox.y + screenDy * mapRatioY;
-                    const testPointsY = [ movingBoxTop, movingBoxTop + this.initialBBox.h/2, movingBoxTop + this.initialBBox.h ];
-                    
-                    testPointsY.forEach(pt => {
-                        this.targetsY.forEach(target => {
-                            const diff = Math.abs(pt - target) / mapRatioY;
-                            if (diff < minDiffY) {
-                                minDiffY = diff;
-                                bestSnapY = (target - (pt - screenDy * mapRatioY)) / mapRatioY;
-                                snapLineY = target;
-                            }
-                        });
-                    });
-
-                    if (bestSnapX !== null) screenDx = bestSnapX;
-                    if (bestSnapY !== null) screenDy = bestSnapY;
-
-                    // Draw the accurate internal SVG snap guides
-                    const overlay = this.container.querySelector('#prism-editor-overlay');
-                    overlay.querySelectorAll('.prism-snap-guide').forEach(g => g.remove());
-                    if(snapLineX !== null) {
-                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                        line.setAttribute("class", "prism-snap-guide");
-                        line.setAttribute("x1", snapLineX); line.setAttribute("y1", "-10000");
-                        line.setAttribute("x2", snapLineX); line.setAttribute("y2", "10000");
-                        line.setAttribute("stroke", "var(--snap-guide)"); line.setAttribute("stroke-width", mapRatioX * 1.5);
-                        line.setAttribute("stroke-dasharray", "4");
-                        overlay.appendChild(line);
-                    }
-                    if(snapLineY !== null) {
-                        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                        line.setAttribute("class", "prism-snap-guide");
-                        line.setAttribute("x1", "-10000"); line.setAttribute("y1", snapLineY);
-                        line.setAttribute("x2", "10000"); line.setAttribute("y2", snapLineY);
-                        line.setAttribute("stroke", "var(--snap-guide)"); line.setAttribute("stroke-width", mapRatioY * 1.5);
-                        line.setAttribute("stroke-dasharray", "4");
-                        overlay.appendChild(line);
-                    }
-
-                    // Vector Translation via pure Ratio Math (No Flipped Bug)
-                    const svgDx = screenDx * mapRatioX;
-                    const svgDy = screenDy * mapRatioY;
-
                     this.selectedElements.forEach(el => {
                         const initTrans = this.initialTransforms.get(el);
-                        el.setAttribute('transform', `translate(${svgDx}, ${svgDy}) ${initTrans}`);
+                        el.setAttribute('transform', `translate(${snapped.dx}, ${snapped.dy}) ${initTrans}`);
                     });
                     
-                    // We only visually update the box size so it trails the mouse flawlessly
                     this.updateOverlay();
+                    this.drawSnapGuides(snapped.lineX, snapped.lineY);
                 }
             },
 
@@ -1129,8 +1062,7 @@
                 if (this.dragMode || this.resizeMode) {
                     this.dragMode = false;
                     this.resizeMode = false;
-                    const overlay = this.container.querySelector('#prism-editor-overlay');
-                    if(overlay) overlay.querySelectorAll('.prism-snap-guide').forEach(g => g.remove());
+                    this.clearSnapGuides();
                     this.saveState();
                 }
             },
@@ -1140,22 +1072,15 @@
                 const svg = this.container.querySelector('svg');
                 if (!svg || this.modal.style.display === 'none') return;
 
-                // Undo / Redo
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-                    e.preventDefault();
-                    if (e.shiftKey) this.redo(); else this.undo();
-                    return;
+                    e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return;
                 }
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
                     e.preventDefault(); this.redo(); return;
                 }
-
-                // Duplicate
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
                     e.preventDefault(); this.duplicateSelected(); return;
                 }
-
-                // Delete
                 if (e.key === 'Delete' || e.key === 'Backspace') {
                     e.preventDefault();
                     if(this.selectedElements.size > 0) {
@@ -1165,50 +1090,59 @@
                     }
                     return;
                 }
-
-                // Layers
                 if (e.key === '[' || e.key === ']') {
                     e.preventDefault();
                     if (this.selectedElements.size > 0) {
                         this.selectedElements.forEach(el => {
-                            if (e.key === '[' && el.previousElementSibling) {
-                                el.parentNode.insertBefore(el, el.previousElementSibling);
-                            } else if (e.key === ']' && el.nextElementSibling) {
-                                el.parentNode.insertBefore(el.nextElementSibling, el);
-                            }
+                            if (e.key === '[' && el.previousElementSibling) el.parentNode.insertBefore(el, el.previousElementSibling);
+                            else if (e.key === ']' && el.nextElementSibling) el.parentNode.insertBefore(el.nextElementSibling, el);
                         });
                         this.saveState();
                     }
                     return;
                 }
 
-                // Keyboard Nudging
+                // Unified Vector Keyboard Nudging & Snapping
                 if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                     e.preventDefault();
                     if(this.selectedElements.size === 0) return;
                     
-                    let dx = 0, dy = 0;
+                    let screenDx = 0, screenDy = 0;
                     const amount = e.shiftKey ? 10 : 1; 
-                    if(e.key === 'ArrowUp') dy = -amount;
-                    if(e.key === 'ArrowDown') dy = amount;
-                    if(e.key === 'ArrowLeft') dx = -amount;
-                    if(e.key === 'ArrowRight') dx = amount;
+                    if(e.key === 'ArrowUp') screenDy = -amount;
+                    if(e.key === 'ArrowDown') screenDy = amount;
+                    if(e.key === 'ArrowLeft') screenDx = -amount;
+                    if(e.key === 'ArrowRight') screenDx = amount;
 
-                    const rect = this.container.getBoundingClientRect();
-                    let svgDx = dx * (this.viewBox.w / rect.width);
-                    let svgDy = dy * (this.viewBox.h / rect.height);
+                    // Treat each stroke as a mini-drag frame
+                    this.selectedElements.forEach(el => this.initialTransforms.set(el, el.getAttribute('transform') || ''));
+                    this.initialBBox = this.calculateSelectionBoundingBox();
+                    this.calculateSnapTargets();
+
+                    const svgOrigin = this.screenToSVG(0, 0);
+                    const svgTarget = this.screenToSVG(screenDx, screenDy);
+                    const svgDx = svgTarget.x - svgOrigin.x;
+                    const svgDy = svgTarget.y - svgOrigin.y;
+
+                    const snapped = this.calculateSnap(svgDx, svgDy);
 
                     this.selectedElements.forEach(el => {
-                        this.applyDeltaTransform(el, svgDx, svgDy);
+                        const initTrans = this.initialTransforms.get(el);
+                        el.setAttribute('transform', `translate(${snapped.dx}, ${snapped.dy}) ${initTrans}`);
                     });
                     
                     this.updateOverlay();
+                    this.drawSnapGuides(snapped.lineX, snapped.lineY);
+                    
                     clearTimeout(this.arrowSaveTimeout);
-                    this.arrowSaveTimeout = setTimeout(() => this.saveState(), 300);
+                    this.arrowSaveTimeout = setTimeout(() => {
+                        this.saveState();
+                        this.clearSnapGuides();
+                    }, 400);
                 }
             },
 
-            // --- Snapping Engine Core ---
+            // --- Engine Logic (Snapping & Math) ---
             calculateSnapTargets() {
                 this.targetsX.clear();
                 this.targetsY.clear();
@@ -1217,18 +1151,21 @@
 
                 svgEl.querySelectorAll('*').forEach(el => {
                     if(this.isShape(el) && !this.selectedElements.has(el)) {
-                        // calculate local shape bounds directly for pure SVG snapping
                         const bbox = el.getBoundingClientRect();
-                        const p1 = this.screenToSVG(bbox.left, bbox.top);
-                        const p2 = this.screenToSVG(bbox.right, bbox.bottom);
-                        
-                        if(p2.x - p1.x > 0 && p2.y - p1.y > 0) {
-                            this.targetsX.add(p1.x);
-                            this.targetsX.add(p1.x + (p2.x - p1.x)/2);
-                            this.targetsX.add(p2.x);
-                            this.targetsY.add(p1.y);
-                            this.targetsY.add(p1.y + (p2.y - p1.y)/2);
-                            this.targetsY.add(p2.y);
+                        if (bbox.width > 0 && bbox.height > 0) {
+                            const p1 = this.screenToSVG(bbox.left, bbox.top);
+                            const p2 = this.screenToSVG(bbox.right, bbox.top);
+                            const p3 = this.screenToSVG(bbox.right, bbox.bottom);
+                            const p4 = this.screenToSVG(bbox.left, bbox.bottom);
+                            
+                            const xs = [p1.x, p2.x, p3.x, p4.x];
+                            const ys = [p1.y, p2.y, p3.y, p4.y];
+                            
+                            const minX = Math.min(...xs), maxX = Math.max(...xs);
+                            const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+                            this.targetsX.add(minX); this.targetsX.add((minX + maxX)/2); this.targetsX.add(maxX);
+                            this.targetsY.add(minY); this.targetsY.add((minY + maxY)/2); this.targetsY.add(maxY);
                         }
                     }
                 });
@@ -1238,17 +1175,103 @@
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                 this.selectedElements.forEach(el => {
                     const rect = el.getBoundingClientRect(); 
+                    // Project all 4 corners into SVG space to account for any scaling/rotation
                     const p1 = this.screenToSVG(rect.left, rect.top);
-                    const p2 = this.screenToSVG(rect.right, rect.bottom);
-                    minX = Math.min(minX, p1.x);
-                    minY = Math.min(minY, p1.y);
-                    maxX = Math.max(maxX, p2.x);
-                    maxY = Math.max(maxY, p2.y);
+                    const p2 = this.screenToSVG(rect.right, rect.top);
+                    const p3 = this.screenToSVG(rect.right, rect.bottom);
+                    const p4 = this.screenToSVG(rect.left, rect.bottom);
+                    
+                    const xs = [p1.x, p2.x, p3.x, p4.x];
+                    const ys = [p1.y, p2.y, p3.y, p4.y];
+                    
+                    minX = Math.min(minX, ...xs);
+                    minY = Math.min(minY, ...ys);
+                    maxX = Math.max(maxX, ...xs);
+                    maxY = Math.max(maxY, ...ys);
                 });
+
+                if(minX === Infinity) return {x:0, y:0, w:0, h:0, cx:0, cy:0};
+
                 return {
                     x: minX, y: minY, w: maxX - minX, h: maxY - minY,
                     cx: (minX + maxX)/2, cy: (minY + maxY)/2
                 };
+            },
+
+            calculateSnap(svgDx, svgDy) {
+                const svgThreshX = Math.abs(this.screenToSVG(this.snapThreshold, 0).x - this.screenToSVG(0, 0).x);
+                const svgThreshY = Math.abs(this.screenToSVG(0, this.snapThreshold).y - this.screenToSVG(0, 0).y);
+
+                let bestSnapX = null, minDiffX = svgThreshX;
+                let bestSnapY = null, minDiffY = svgThreshY;
+                let snapLineX = null, snapLineY = null;
+
+                const testX = [this.initialBBox.x + svgDx, this.initialBBox.cx + svgDx, this.initialBBox.x + this.initialBBox.w + svgDx];
+                testX.forEach(pt => {
+                    this.targetsX.forEach(target => {
+                        const diff = Math.abs(pt - target);
+                        if (diff < minDiffX) {
+                            minDiffX = diff;
+                            bestSnapX = target - (pt - svgDx); 
+                            snapLineX = target;
+                        }
+                    });
+                });
+
+                const testY = [this.initialBBox.y + svgDy, this.initialBBox.cy + svgDy, this.initialBBox.y + this.initialBBox.h + svgDy];
+                testY.forEach(pt => {
+                    this.targetsY.forEach(target => {
+                        const diff = Math.abs(pt - target);
+                        if (diff < minDiffY) {
+                            minDiffY = diff;
+                            bestSnapY = target - (pt - svgDy);
+                            snapLineY = target;
+                        }
+                    });
+                });
+
+                return {
+                    dx: bestSnapX !== null ? bestSnapX : svgDx,
+                    dy: bestSnapY !== null ? bestSnapY : svgDy,
+                    lineX: snapLineX,
+                    lineY: snapLineY
+                };
+            },
+
+            drawSnapGuides(snapLineX, snapLineY) {
+                const overlay = this.container.querySelector('#prism-editor-overlay');
+                if(!overlay) return;
+                
+                overlay.querySelectorAll('.prism-snap-guide').forEach(g => g.remove());
+                
+                const rect = this.container.getBoundingClientRect();
+                const strokeW = (this.viewBox.w / rect.width) * 1.5;
+
+                if(snapLineX !== null) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("class", "prism-snap-guide");
+                    line.setAttribute("x1", snapLineX); line.setAttribute("y1", "-100000");
+                    line.setAttribute("x2", snapLineX); line.setAttribute("y2", "100000");
+                    line.setAttribute("stroke", "var(--snap-guide)"); 
+                    line.setAttribute("stroke-width", strokeW);
+                    line.setAttribute("stroke-dasharray", "4");
+                    overlay.appendChild(line);
+                }
+                if(snapLineY !== null) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("class", "prism-snap-guide");
+                    line.setAttribute("x1", "-100000"); line.setAttribute("y1", snapLineY);
+                    line.setAttribute("x2", "100000"); line.setAttribute("y2", snapLineY);
+                    line.setAttribute("stroke", "var(--snap-guide)"); 
+                    line.setAttribute("stroke-width", strokeW);
+                    line.setAttribute("stroke-dasharray", "4");
+                    overlay.appendChild(line);
+                }
+            },
+
+            clearSnapGuides() {
+                const overlay = this.container.querySelector('#prism-editor-overlay');
+                if(overlay) overlay.querySelectorAll('.prism-snap-guide').forEach(g => g.remove());
             },
 
             exportEditedSvg() {
@@ -1256,7 +1279,6 @@
                 const svgEl = this.container.querySelector('svg');
                 if(!svgEl) return;
                 
-                // Cleanup Editor Injections
                 const overlay = svgEl.querySelector('#prism-editor-overlay');
                 if(overlay) overlay.remove();
 
