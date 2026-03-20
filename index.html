@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Prism Pro | Advanced Image & Vector Studio</title>
-    <meta name="description" content="Convert HEIC, WebP, JPG, PNG instantly. Features bulk processing, watermarking, filters, SVG vector editing, and zero-upload local privacy.">
+    <title>Prism Pro | Enterprise Image & Vector Studio</title>
+    <meta name="description" content="Convert HEIC, WebP, JPG, PNG instantly. Features bulk processing, watermarking, filters, SVG vector editing, ZIP ingestion, and zero-upload local privacy.">
     <meta name="theme-color" content="#6366f1">
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.8/heic2any.min.js"></script>
@@ -69,6 +69,7 @@
             width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;
         }
         .theme-toggle:hover { border-color: var(--primary); }
+        .compliance-badge { font-size: 0.75rem; background: rgba(16, 185, 129, 0.1); color: var(--success); padding: 0.25rem 0.75rem; border-radius: 20px; border: 1px solid var(--success); display: flex; align-items: center; gap: 0.3rem;}
 
         /* --- Layout --- */
         .container {
@@ -85,11 +86,11 @@
         .control-group label { display: block; font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; }
         .control-row { display: flex; gap: 0.5rem; align-items: center; }
         
-        select, input[type="text"], input[type="range"] {
+        select, input[type="text"], input[type="number"], input[type="range"] {
             width: 100%; background: var(--bg-body); border: 1px solid var(--border); color: var(--text-main);
             padding: 0.75rem; border-radius: 8px; font-size: 0.95rem; outline: none;
         }
-        select:focus, input[type="text"]:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
+        select:focus, input[type="text"]:focus, input[type="number"]:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
         
         input[type="color"] {
             -webkit-appearance: none; border: 1px solid var(--border); width: 40px; height: 40px;
@@ -119,6 +120,8 @@
         .btn-secondary:hover { background: var(--border); }
         .btn-success { background: var(--success); }
         .btn-success:hover { background: #059669; }
+        .btn-warning { background: var(--warning); color: #000; }
+        .btn-warning:hover { background: #d97706; }
 
         .reprocess-bar {
             background: rgba(99, 102, 241, 0.15); border: 1px solid var(--primary); color: var(--primary);
@@ -166,9 +169,9 @@
         }
         .modal-header {
             padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
-            background: var(--bg-card); z-index: 10;
+            background: var(--bg-card); z-index: 10; flex-wrap: wrap; gap: 1rem;
         }
-        .modal-toolbar { display: flex; gap: 0.75rem; align-items: center; }
+        .modal-toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;}
         .tool-divider { width: 1px; height: 24px; background: var(--border); margin: 0 0.5rem; }
         .tool-btn {
             background: var(--bg-body); border: 1px solid var(--border); color: var(--text-main); padding: 0.5rem; border-radius: 6px; cursor: pointer;
@@ -191,17 +194,24 @@
 
         /* Prevent Hover Fading on Editor Overlays */
         #prism-editor-overlay * { transition: none !important; opacity: 1 !important; }
+        #prism-sel-box { stroke-dasharray: 4; animation: march 1s linear infinite; }
 
         @media (max-width: 900px) { .container { grid-template-columns: 1fr; padding: 1rem; } }
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes march { to { stroke-dashoffset: -8; } }
     </style>
 </head>
 <body>
 
     <header>
-        <div class="logo"><i data-lucide="layers"></i>Prism<span>Pro</span></div>
+        <div style="display:flex; align-items:center; gap: 2rem;">
+            <div class="logo"><i data-lucide="layers"></i>Prism<span>Pro</span></div>
+            <div class="compliance-badge" title="All processing occurs in your browser. EXIF data is automatically stripped during render.">
+                <i data-lucide="shield-check" size="14"></i> Privacy Guard Active
+            </div>
+        </div>
         <button class="theme-toggle" id="themeToggle" title="Toggle Dark Mode">
             <i data-lucide="moon" id="themeIcon"></i>
         </button>
@@ -282,10 +292,10 @@
         <main>
             <div class="drop-zone" id="dropZone">
                 <i data-lucide="upload-cloud" size="48" style="color:var(--primary); margin-bottom:1rem;"></i>
-                <h2 style="margin-bottom:0.5rem;">Drop HEIC, WebP, JPG, PNG, or SVG</h2>
-                <p style="color:var(--text-muted); margin-bottom:1.5rem;">Batch Processing & Auto-Conversion Enabled</p>
+                <h2 style="margin-bottom:0.5rem;">Drop Images, SVGs, or ZIP Archives</h2>
+                <p style="color:var(--text-muted); margin-bottom:1.5rem;">Batch Processing, Deep ZIP Extraction & Auto-Conversion Enabled</p>
                 <button class="btn" onclick="document.getElementById('fileInput').click()">Browse Local Files</button>
-                <input type="file" id="fileInput" accept="image/heic, .heic, image/jpeg, image/png, image/webp, image/svg+xml, .svg" multiple style="display:none">
+                <input type="file" id="fileInput" accept="image/heic, .heic, image/jpeg, image/png, image/webp, image/svg+xml, .svg, application/zip, .zip" multiple style="display:none">
             </div>
 
             <div id="reprocessAlert" class="reprocess-bar" style="display:none;">
@@ -300,27 +310,44 @@
     <div class="modal-backdrop" id="svgModalBackdrop">
         <div class="modal">
             <div class="modal-header">
-                <div style="display:flex; align-items:center; gap:1rem;">
-                    <h3>Vector Studio</h3>
-                    <span id="svgFileName" style="color:var(--text-muted); font-size:0.9rem; border-left: 1px solid var(--border); padding-left: 1rem;"></span>
+                <div style="display:flex; align-items:center; gap:1rem; flex: 1;">
+                    <h3 style="white-space:nowrap;">Vector Studio</h3>
+                    <span id="svgFileName" style="color:var(--text-muted); font-size:0.9rem; border-left: 1px solid var(--border); padding-left: 1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
                 </div>
                 <div class="modal-toolbar">
-                    <div class="shortcut-hint">
-                        <span><kbd>Shift</kbd> Select</span>
-                        <span><kbd>Ctrl+Z</kbd> Undo</span>
-                        <span><kbd>Ctrl+D</kbd> Dup</span>
-                        <span><kbd>Del</kbd> Drop</span>
-                        <span><kbd>Arrows</kbd> Move/Snap</span>
+                    <div class="shortcut-hint" style="margin-right:0.5rem;">
+                        <span title="Group / Ungroup"><kbd>Ctrl+G</kbd> / <kbd>Ctrl+Shift+G</kbd></span>
                     </div>
+                    
                     <div class="tool-divider"></div>
                     
-                    <label style="font-size:0.8rem; font-weight:600; margin-right:-4px;">Fill:</label>
-                    <input type="color" id="svgColorPicker" value="#6366f1" title="Change Color of Selected Element">
+                    <div style="display:flex; flex-direction:column; gap:0.2rem; align-items:center; margin-right: 0.5rem;">
+                        <label style="font-size:0.6rem; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Fill</label>
+                        <input type="color" id="svgColorPicker" value="#6366f1" title="Change Fill Color">
+                    </div>
+
+                    <div style="display:flex; flex-direction:column; gap:0.2rem; align-items:center;">
+                        <label style="font-size:0.6rem; font-weight:700; text-transform:uppercase; color:var(--text-muted);">Stroke</label>
+                        <div style="display:flex; gap:0.2rem;">
+                            <input type="color" id="svgStrokePicker" value="#000000" title="Change Stroke Color">
+                            <input type="number" id="svgStrokeWidth" value="0" min="0" max="100" title="Stroke Width" style="width: 55px; padding: 0.2rem 0.5rem; height: 40px;">
+                        </div>
+                    </div>
                     
+                    <div class="tool-divider"></div>
+
+                    <div style="display:flex; gap:0.2rem;">
+                        <button class="tool-btn" id="svgBringForward" title="Bring Forward ( ] )"><i data-lucide="arrow-up-to-line"></i></button>
+                        <button class="tool-btn" id="svgSendBackward" title="Send Backward ( [ )"><i data-lucide="arrow-down-to-line"></i></button>
+                    </div>
+
+                    <div class="tool-divider"></div>
+
                     <button class="tool-btn" id="svgResetView" title="Reset Camera"><i data-lucide="maximize"></i></button>
                     <button class="tool-btn" id="modalThemeToggle" title="Toggle Theme"><i data-lucide="moon" id="modalThemeIcon"></i></button>
 
                     <div class="tool-divider"></div>
+                    <button class="btn btn-warning btn-sm" id="rasterizeSvgBtn" title="Instantly convert canvas to PNG"><i data-lucide="image"></i> Rasterize PNG</button>
                     <button class="btn btn-secondary btn-sm" id="closeSvgBtn">Cancel</button>
                     <button class="btn btn-success btn-sm" id="exportSvgBtn"><i data-lucide="check"></i> Apply Edits</button>
                 </div>
@@ -331,7 +358,16 @@
     </div>
 
     <script>
+        // --- Persistence Initialization ---
+        const savedTheme = localStorage.getItem('prism-theme');
+        if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+        
         lucide.createIcons();
+        if(savedTheme === 'light') {
+            document.getElementById('themeIcon').setAttribute('data-lucide', 'sun');
+            document.getElementById('modalThemeIcon').setAttribute('data-lucide', 'sun');
+            lucide.createIcons();
+        }
 
         // --- Core App State ---
         const state = {
@@ -357,7 +393,9 @@
         function toggleTheme() {
             const html = document.documentElement;
             const isDark = html.getAttribute('data-theme') === 'dark';
-            html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            const newTheme = isDark ? 'light' : 'dark';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('prism-theme', newTheme);
             els.themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
             els.modalThemeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
             lucide.createIcons();
@@ -394,23 +432,52 @@
         els.fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
 
         function handleFiles(fileList) {
+            const arrFiles = Array.from(fileList);
             const validTypes = ['image/heic', 'image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
-            const newFiles = Array.from(fileList).filter(f => {
+            
+            // 1. Separate ZIPs
+            const zipFiles = arrFiles.filter(f => f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip');
+            const newFiles = arrFiles.filter(f => {
                 const ext = f.name.toLowerCase().split('.').pop();
                 return validTypes.includes(f.type) || ['heic', 'jpg', 'jpeg', 'png', 'webp', 'svg'].includes(ext);
             });
 
-            if (newFiles.length === 0) return;
+            // 2. Process Standard Files
+            if (newFiles.length > 0) {
+                newFiles.forEach(file => {
+                    const id = Math.random().toString(36).substr(2, 9);
+                    const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+                    const fileObj = { id, originalFile: file, status: 'pending', isSvg };
+                    state.files.push(fileObj);
+                    state.queue.push(fileObj);
+                    createCard(fileObj);
+                });
+                processQueue();
+            }
 
-            newFiles.forEach(file => {
-                const id = Math.random().toString(36).substr(2, 9);
-                const isSvg = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
-                const fileObj = { id, originalFile: file, status: 'pending', isSvg };
-                state.files.push(fileObj);
-                state.queue.push(fileObj);
-                createCard(fileObj);
+            // 3. Recursive ZIP Extraction Engine
+            zipFiles.forEach(async zipFile => {
+                try {
+                    const zip = await JSZip.loadAsync(zipFile);
+                    const extractedPromises = [];
+                    zip.forEach((relativePath, zipEntry) => {
+                        if (!zipEntry.dir && relativePath.match(/\.(png|jpe?g|webp|heic|svg)$/i)) {
+                            extractedPromises.push(zipEntry.async("blob").then(blob => {
+                                // Reconstruct File object to maintain pipeline integrity
+                                const ext = relativePath.split('.').pop().toLowerCase();
+                                let mime = `image/${ext}`;
+                                if(ext === 'jpg') mime = 'image/jpeg';
+                                if(ext === 'svg') mime = 'image/svg+xml';
+                                return new File([blob], relativePath.split('/').pop(), { type: mime });
+                            }));
+                        }
+                    });
+                    const extractedFiles = await Promise.all(extractedPromises);
+                    if(extractedFiles.length > 0) handleFiles(extractedFiles); // Recursive feedback
+                } catch (e) {
+                    console.error("ZIP Extraction Failed:", e);
+                }
             });
-            processQueue();
         }
 
         // --- Processing Engine Pipeline ---
@@ -680,6 +747,8 @@
             container: document.getElementById('svgCanvasContainer'),
             modal: document.getElementById('svgModalBackdrop'),
             colorPicker: document.getElementById('svgColorPicker'),
+            strokePicker: document.getElementById('svgStrokePicker'),
+            strokeWidthInput: document.getElementById('svgStrokeWidth'),
             
             // Camera & Transforms
             viewBox: { x: 0, y: 0, w: 100, h: 100 },
@@ -707,6 +776,7 @@
                 this.activeFileId = fileId;
                 const fileObj = state.files.find(f => f.id === fileId);
                 document.getElementById('svgFileName').textContent = fileObj.newName;
+                document.getElementById('svgFileName').title = fileObj.newName;
                 
                 const text = await fileObj.blob.text();
                 Array.from(this.container.children).forEach(child => { if(child.tagName === 'svg') child.remove(); });
@@ -759,7 +829,6 @@
                 overlay.id = "prism-editor-overlay";
                 svg.appendChild(overlay);
 
-                // Main Selection Box
                 let selBox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                 selBox.id = "prism-sel-box";
                 selBox.setAttribute("fill", "rgba(99, 102, 241, 0.05)");
@@ -767,7 +836,6 @@
                 selBox.style.pointerEvents = "none";
                 overlay.appendChild(selBox);
 
-                // Resize Handles
                 const dirs = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
                 dirs.forEach(dir => {
                     let handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -858,7 +926,82 @@
                 this.updateOverlay();
             },
 
-            // --- Selection Logic ---
+            // --- Layering (Z-Index) & Grouping ---
+            bringForward() {
+                if(this.selectedElements.size === 0) return;
+                this.selectedElements.forEach(el => {
+                    if (el.nextElementSibling && el.nextElementSibling.id !== 'prism-editor-overlay') {
+                        el.parentNode.insertBefore(el.nextElementSibling, el);
+                    }
+                });
+                this.saveState();
+            },
+
+            sendBackward() {
+                if(this.selectedElements.size === 0) return;
+                this.selectedElements.forEach(el => {
+                    if (el.previousElementSibling) {
+                        el.parentNode.insertBefore(el, el.previousElementSibling);
+                    }
+                });
+                this.saveState();
+            },
+
+            groupSelection() {
+                if (this.selectedElements.size < 2) return;
+                const svgEl = this.container.querySelector('svg');
+                const overlay = svgEl.querySelector('#prism-editor-overlay');
+                
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
+                
+                // Find highest element to insert before
+                const arr = Array.from(this.selectedElements);
+                let highest = arr[0];
+                arr.forEach(el => {
+                    if(el.compareDocumentPosition(highest) & Node.DOCUMENT_POSITION_PRECEDING) {
+                        highest = el;
+                    }
+                });
+
+                highest.parentNode.insertBefore(g, highest.nextSibling);
+                
+                arr.forEach(el => {
+                    g.appendChild(el);
+                });
+
+                this.clearSelection();
+                this.setSelection(g, true);
+                this.saveState();
+            },
+
+            ungroupSelection() {
+                let changed = false;
+                const toSelect = [];
+                Array.from(this.selectedElements).forEach(el => {
+                    if (el.tagName.toLowerCase() === 'g') {
+                        changed = true;
+                        const children = Array.from(el.childNodes);
+                        children.forEach(child => {
+                            if(child.nodeType === 1) { // ELEMENT_NODE
+                                el.parentNode.insertBefore(child, el);
+                                toSelect.push(child);
+                            }
+                        });
+                        el.remove();
+                    } else {
+                        toSelect.push(el);
+                    }
+                });
+                
+                if (changed) {
+                    this.clearSelection();
+                    toSelect.forEach(child => this.setSelection(child, true));
+                    this.saveState();
+                }
+            },
+
+            // --- Selection & Properties Logic ---
             clearSelection() {
                 this.selectedElements.clear();
                 this.updateOverlay();
@@ -880,14 +1023,28 @@
                     const el = Array.from(this.selectedElements)[0];
                     const currentFill = el.getAttribute('fill') || getComputedStyle(el).fill;
                     if(currentFill && currentFill.startsWith('#')) this.colorPicker.value = currentFill.slice(0, 7);
+
+                    const currentStroke = el.getAttribute('stroke') || getComputedStyle(el).stroke;
+                    if(currentStroke && currentStroke.startsWith('#')) this.strokePicker.value = currentStroke.slice(0, 7);
+
+                    let currentStrokeWidth = el.getAttribute('stroke-width') || getComputedStyle(el).strokeWidth;
+                    if(currentStrokeWidth) this.strokeWidthInput.value = parseFloat(currentStrokeWidth);
+                    else this.strokeWidthInput.value = 0;
                 }
             },
 
-            applyColorToSelection(colorHex) {
+            applyPropertyToSelection(attr, styleAttr, val) {
                 if(this.selectedElements.size === 0) return;
                 this.selectedElements.forEach(el => {
-                    el.setAttribute('fill', colorHex);
-                    el.style.fill = colorHex; 
+                    if(el.tagName.toLowerCase() === 'g') {
+                        el.querySelectorAll('*').forEach(child => {
+                            child.setAttribute(attr, val);
+                            child.style[styleAttr] = val;
+                        });
+                    } else {
+                        el.setAttribute(attr, val);
+                        el.style[styleAttr] = val;
+                    }
                 });
                 this.saveState();
             },
@@ -898,9 +1055,14 @@
                 
                 this.selectedElements.forEach(el => {
                     let clone = el.cloneNode(true);
-                    clone.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
+                    // Reset IDs deeply
+                    const fixId = (node) => {
+                        if(node.setAttribute) node.setAttribute('data-prism-id', Math.random().toString(36).substr(2, 9));
+                        node.childNodes.forEach(fixId);
+                    };
+                    fixId(clone);
+
                     el.parentNode.insertBefore(clone, el.nextSibling);
-                    // Safe vector math for offset duplication
                     const offset = this.screenToSVG(20, 20);
                     const zero = this.screenToSVG(0,0);
                     this.applyDeltaTransform(clone, offset.x - zero.x, offset.y - zero.y);
@@ -926,7 +1088,6 @@
                 if(svgEl) svgEl.setAttribute('viewBox', `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.w} ${this.viewBox.h}`);
             },
 
-            // --- Absolute Inverse Projection Matrix (Solves Y-Inversion Bug) ---
             screenToSVG(clientX, clientY) {
                 const svg = this.container.querySelector('svg');
                 const pt = svg.createSVGPoint();
@@ -947,6 +1108,9 @@
                 const wheel = e.deltaY < 0 ? 1 : -1;
                 const zoom = Math.exp(wheel * zoomIntensity);
                 
+                // Confinement check (don't zoom out infinitely)
+                if (wheel === 1 && this.viewBox.w > 20000) return; 
+
                 const newW = this.viewBox.w / zoom;
                 const newH = this.viewBox.h / zoom;
                 this.viewBox.x += (this.viewBox.w - newW) / 2;
@@ -958,16 +1122,15 @@
             },
 
             onMouseDown(e) {
+                if(e.target.closest('.modal-header')) return; // Ignore toolbar clicks
                 const isSvgBackground = e.target.tagName.toLowerCase() === 'svg';
                 
-                // Pan Camera
                 if (e.button === 1 || (e.button === 0 && isSvgBackground)) {
                     e.preventDefault();
                     if(e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) this.clearSelection();
                     this.isPanning = true;
                     this.panStart = { x: e.clientX, y: e.clientY };
                 } 
-                // Resize Action
                 else if (e.button === 0 && e.target.classList.contains('prism-handle')) {
                     e.preventDefault();
                     this.resizeMode = true;
@@ -979,14 +1142,19 @@
                         this.initialTransforms.set(el, el.getAttribute('transform') || '');
                     });
                 }
-                // Drag Action
                 else if (e.button === 0 && !isSvgBackground && this.isShape(e.target)) {
                     e.preventDefault();
                     
+                    // Traverse up to find the highest parent group if grouped
+                    let target = e.target;
+                    while(target.parentNode && target.parentNode.tagName.toLowerCase() === 'g' && target.parentNode.id !== 'prism-editor-overlay') {
+                        target = target.parentNode;
+                    }
+
                     if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                        this.setSelection(e.target, true); // additive
-                    } else if (!this.selectedElements.has(e.target)) {
-                        this.setSelection(e.target, false); // exclusive
+                        this.setSelection(target, true); 
+                    } else if (!this.selectedElements.has(target)) {
+                        this.setSelection(target, false); 
                     }
 
                     if (this.selectedElements.size > 0) {
@@ -1072,6 +1240,14 @@
                 const svg = this.container.querySelector('svg');
                 if (!svg || this.modal.style.display === 'none') return;
 
+                // Group / Ungroup
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+                    e.preventDefault();
+                    if(e.shiftKey) this.ungroupSelection();
+                    else this.groupSelection();
+                    return;
+                }
+
                 if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
                     e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return;
                 }
@@ -1092,13 +1268,8 @@
                 }
                 if (e.key === '[' || e.key === ']') {
                     e.preventDefault();
-                    if (this.selectedElements.size > 0) {
-                        this.selectedElements.forEach(el => {
-                            if (e.key === '[' && el.previousElementSibling) el.parentNode.insertBefore(el, el.previousElementSibling);
-                            else if (e.key === ']' && el.nextElementSibling) el.parentNode.insertBefore(el.nextElementSibling, el);
-                        });
-                        this.saveState();
-                    }
+                    if(e.key === ']') this.bringForward();
+                    if(e.key === '[') this.sendBackward();
                     return;
                 }
 
@@ -1114,7 +1285,6 @@
                     if(e.key === 'ArrowLeft') screenDx = -amount;
                     if(e.key === 'ArrowRight') screenDx = amount;
 
-                    // Treat each stroke as a mini-drag frame
                     this.selectedElements.forEach(el => this.initialTransforms.set(el, el.getAttribute('transform') || ''));
                     this.initialBBox = this.calculateSelectionBoundingBox();
                     this.calculateSnapTargets();
@@ -1175,7 +1345,6 @@
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                 this.selectedElements.forEach(el => {
                     const rect = el.getBoundingClientRect(); 
-                    // Project all 4 corners into SVG space to account for any scaling/rotation
                     const p1 = this.screenToSVG(rect.left, rect.top);
                     const p2 = this.screenToSVG(rect.right, rect.top);
                     const p3 = this.screenToSVG(rect.right, rect.bottom);
@@ -1299,13 +1468,49 @@
                 this.close();
             },
 
+            rasterizeToPng() {
+                this.clearSelection();
+                const svgEl = this.container.querySelector('svg');
+                if(!svgEl) return;
+                
+                const overlay = svgEl.querySelector('#prism-editor-overlay');
+                if(overlay) overlay.style.display = 'none';
+
+                const serializer = new XMLSerializer();
+                const source = serializer.serializeToString(svgEl);
+                const svg64 = btoa(unescape(encodeURIComponent(source)));
+                const b64Start = 'data:image/svg+xml;base64,';
+                const image64 = b64Start + svg64;
+
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    // Use viewBox dimensions for crisp render if possible
+                    canvas.width = this.viewBox.w || img.width;
+                    canvas.height = this.viewBox.h || img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    canvas.toBlob((blob) => {
+                        const fileObj = state.files.find(f => f.id === this.activeFileId);
+                        const baseName = fileObj.originalFile.name.replace(/\.[^/.]+$/, "");
+                        saveAs(blob, `${baseName}_rasterized.png`);
+                    }, 'image/png');
+                    
+                    if(overlay) overlay.style.display = 'block';
+                };
+                img.src = image64;
+            },
+
             attachEvents() {
                 this.bindWheel = this.onWheel.bind(this);
                 this.bindDown = this.onMouseDown.bind(this);
                 this.bindMove = this.onMouseMove.bind(this);
                 this.bindUp = this.onMouseUp.bind(this);
                 this.bindKeyDown = this.onKeyDown.bind(this);
-                this.bindColor = (e) => this.applyColorToSelection(e.target.value);
+                this.bindColor = (e) => this.applyPropertyToSelection('fill', 'fill', e.target.value);
+                this.bindStroke = (e) => this.applyPropertyToSelection('stroke', 'stroke', e.target.value);
+                this.bindStrokeW = (e) => this.applyPropertyToSelection('stroke-width', 'strokeWidth', e.target.value);
                 
                 this.container.addEventListener('wheel', this.bindWheel, {passive: false});
                 this.container.addEventListener('mousedown', this.bindDown);
@@ -1313,6 +1518,8 @@
                 window.addEventListener('mouseup', this.bindUp);
                 window.addEventListener('keydown', this.bindKeyDown);
                 this.colorPicker.addEventListener('change', this.bindColor);
+                this.strokePicker.addEventListener('change', this.bindStroke);
+                this.strokeWidthInput.addEventListener('input', this.bindStrokeW);
             },
 
             detachEvents() {
@@ -1322,12 +1529,17 @@
                 window.removeEventListener('mouseup', this.bindUp);
                 window.removeEventListener('keydown', this.bindKeyDown);
                 this.colorPicker.removeEventListener('change', this.bindColor);
+                this.strokePicker.removeEventListener('change', this.bindStroke);
+                this.strokeWidthInput.removeEventListener('input', this.bindStrokeW);
             }
         };
 
         // UI Bindings for Vector Studio
         document.getElementById('closeSvgBtn').addEventListener('click', () => VectorStudio.close());
         document.getElementById('exportSvgBtn').addEventListener('click', () => VectorStudio.exportEditedSvg());
+        document.getElementById('rasterizeSvgBtn').addEventListener('click', () => VectorStudio.rasterizeToPng());
+        document.getElementById('svgBringForward').addEventListener('click', () => VectorStudio.bringForward());
+        document.getElementById('svgSendBackward').addEventListener('click', () => VectorStudio.sendBackward());
         document.getElementById('svgResetView').addEventListener('click', () => {
              VectorStudio.viewBox = {x:0, y:0, w:800, h:600};
              VectorStudio.updateViewBox();
